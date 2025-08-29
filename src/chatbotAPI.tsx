@@ -1,32 +1,93 @@
-export const getChatbotResponse = async (question: string) => {
+// src/ChatbotAPI.ts
+import axios from 'axios';
+
+// Vite uses import.meta.env instead of process.env
+const API_KEY = import.meta.env.VITE_OPENAI_API_KEY;
+
+export const getChatbotResponse = async (question: string): Promise<string> => {
+  // Debug: Check if API key is available
+  console.log('API Key available:', !!API_KEY);
+  
+  if (!API_KEY) {
+    console.error('OpenAI API key is missing. Check your .env file');
+    return '❌ API key not configured. Please check environment settings.';
+  }
+
   try {
-    const response = await fetch(
-      'https://api.openai.com/v1/chat/completions',  // Updated endpoint
+    // Validate question
+    if (!question || question.trim().length === 0) {
+      return 'Please provide a valid question.';
+    }
+
+    const response = await axios.post(
+      'https://api.openai.com/v1/chat/completions',
       {
-        method: 'POST',
+        model: 'gpt-3.5-turbo',
+        messages: [{ role: 'user', content: question.trim() }],
+        max_tokens: 150,
+        temperature: 0.7,
+      },
+      {
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer sk-...Nk8A`,  // Replace with your actual API key
+          Authorization: `Bearer ${API_KEY}`,
         },
-        body: JSON.stringify({
-          model: 'gpt-3.5-turbo',  // GPT-3.5 or GPT-4 models work here
-          messages: [
-            { role: 'user', content: question }
-          ],
-        }),
+        timeout: 10000,
+        withCredentials: false,
       }
     );
 
-    // Check if the response is successful
-    if (!response.ok) {
-      throw new Error('Network response was not ok');
+    const responseText = response.data.choices?.[0]?.message?.content?.trim();
+    
+    if (!responseText) {
+      console.warn('Empty response from OpenAI:', response.data);
+      return 'I received an empty response. Please try again.';
     }
 
-    const data = await response.json();
-    return data.choices[0].message.content.trim();  // Corrected response format
+    return responseText;
 
+  } catch (error: any) {
+    console.error('OpenAI API Error:', error);
+
+    if (error.response) {
+      switch (error.response.status) {
+        case 401:
+          return '❌ Authentication failed. Please check your API key.';
+        case 429:
+          return '❌ Rate limit exceeded. Please try again in a moment.';
+        case 403:
+          return '❌ Access forbidden. Please check your API permissions.';
+        default:
+          return `❌ API error (${error.response.status}). Please try again.`;
+      }
+    } else if (error.request) {
+      return '❌ Network error. Please check your connection.';
+    } else if (error.code === 'ECONNABORTED') {
+      return '❌ Request timeout. Please try again.';
+    } else {
+      return '❌ Sorry, I encountered an unexpected error.';
+    }
+  }
+};
+
+// Utility function to verify API connectivity
+export const verifyApiConnection = async (): Promise<boolean> => {
+  try {
+    if (!API_KEY) {
+      console.error('API key not found');
+      return false;
+    }
+
+    const response = await axios.get('https://api.openai.com/v1/models', {
+      headers: {
+        Authorization: `Bearer ${API_KEY}`,
+      },
+      timeout: 5000,
+    });
+
+    return response.status === 200;
   } catch (error) {
-    console.error('Error fetching response from chatbot:', error);
-    return 'Sorry, I couldn’t fetch a response at the moment.';
+    console.error('API connection test failed:', error);
+    return false;
   }
 };
